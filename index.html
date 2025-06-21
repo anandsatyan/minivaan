@@ -235,6 +235,7 @@
                 <div id="playerHealth"></div>
             </div>
         </div>
+        <div id="laserStatus" style="display: none; color: #ff00ff; text-shadow: 0 0 10px #ff00ff;">⚡ LASER ACTIVE ⚡</div>
     </div>
     <div id="upgradeNotification">SHIP UPGRADED!</div>
     <div id="gameOver">MISSION FAILED</div>
@@ -263,6 +264,7 @@
         const instructions = document.getElementById('instructions');
         const playerHealthUI = document.getElementById('playerHealth');
         const damageOverlay = document.getElementById('damageOverlay');
+        const laserStatus = document.getElementById('laserStatus');
 
         // Detect mobile device
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -402,11 +404,13 @@
             defense: 0 // Defense level that reduces damage
         };
 
-        const playerImage = new Image();
-        playerImage.src = 'spacecraft.png';
-
-        const playerImageLvl3 = new Image();
-        playerImageLvl3.src = 'c2spacecraft.png';
+        // Load all level spacecraft images
+        const levelImages = [];
+        for (let i = 1; i <= 5; i++) {
+            const img = new Image();
+            img.src = `level${i}.png`;
+            levelImages.push(img);
+        }
 
         const enemyImage = new Image();
         enemyImage.src = 'enemy.png';
@@ -416,6 +420,8 @@
         let enemies = [];
         let enemyBullets = [];
         let explosions = [];
+        let powerups = [];
+        let laserBeam = null;
 
         // Input handling
         document.addEventListener('keydown', (e) => {
@@ -488,6 +494,8 @@
             enemies = [];
             enemyBullets = [];
             explosions = [];
+            powerups = [];
+            laserBeam = null;
             gameOverDisplay.style.opacity = 0;
             restartButton.style.opacity = 0;
             updateUI();
@@ -498,6 +506,13 @@
             levelDisplay.textContent = gameState.level;
             aircraftTypeDisplay.textContent = spaceshipTypes[gameState.level - 1].name;
             playerHealthUI.style.width = `${(player.health / player.maxHealth) * 100}%`;
+            
+            // Show/hide laser status
+            if (laserBeam && laserBeam.active) {
+                laserStatus.style.display = 'block';
+            } else {
+                laserStatus.style.display = 'none';
+            }
         }
 
         function showDamageEffect() {
@@ -520,12 +535,6 @@
 
                 // Increase defense with each upgrade
                 player.defense = gameState.level - 1;
-
-                // Check for visual upgrade at level 3 (20,000 points)
-                if (gameState.level === 3) {
-                    player.width = 60; // Slightly bigger size
-                    player.height = 60;
-                }
             }
         }
 
@@ -563,12 +572,9 @@
         }
 
         function drawSpaceship() {
-            let imageToDraw = playerImage;
-            if (gameState.level >= 3) {
-                imageToDraw = playerImageLvl3;
-            }
+            let imageToDraw = levelImages[gameState.level - 1];
 
-            if (imageToDraw.complete) {
+            if (imageToDraw && imageToDraw.complete) {
                 ctx.drawImage(imageToDraw, player.x - player.width / 2, player.y - player.height / 2, player.width, player.height);
             } else {
                 // Fallback drawing if image not loaded yet
@@ -576,9 +582,6 @@
                 const centerX = player.x;
                 const centerY = player.y;
                 let size = ship.size;
-                if (gameState.level >= 3) {
-                    size = 60;
-                }
 
                 // Main body
                 ctx.fillStyle = ship.color;
@@ -883,12 +886,17 @@
                 updateEnemyBullets();
                 checkBulletCollisions();
                 updateExplosions();
+                spawnPowerup();
+                updatePowerups();
+                updateLaserBeam();
 
                 drawSpaceship();
                 drawBullets();
                 drawEnemies();
                 drawEnemyBullets();
                 drawExplosions();
+                drawPowerups();
+                drawLaserBeam();
             } else {
                 drawSpaceship();
             }
@@ -908,6 +916,150 @@
                 gameState.gameStarted = true;
             }, 2000);
         }, 5000);
+
+        function createPowerup() {
+            const powerup = {
+                x: Math.random() * (canvas.width - 30),
+                y: -30,
+                width: 30,
+                height: 30,
+                speed: 2,
+                type: 'laser'
+            };
+            return powerup;
+        }
+
+        function spawnPowerup() {
+            const spawnChance = 0.005; // Very rare spawn
+            if (Math.random() < spawnChance) {
+                powerups.push(createPowerup());
+            }
+        }
+
+        function updatePowerups() {
+            powerups.forEach((powerup, index) => {
+                powerup.y += powerup.speed;
+
+                // Check collision with player
+                if (checkCollision(player, powerup)) {
+                    if (powerup.type === 'laser') {
+                        activateLaserBeam();
+                    }
+                    powerups.splice(index, 1);
+                    playSound('upgrade'); // Use upgrade sound for powerup collection
+                }
+
+                // Remove if off-screen
+                if (powerup.y > canvas.height + powerup.height) {
+                    powerups.splice(index, 1);
+                }
+            });
+        }
+
+        function drawPowerups() {
+            powerups.forEach(powerup => {
+                // Draw powerup as a glowing orb
+                ctx.save();
+                ctx.shadowColor = '#00ffff';
+                ctx.shadowBlur = 20;
+                ctx.fillStyle = '#00ffff';
+                ctx.beginPath();
+                ctx.arc(powerup.x + powerup.width/2, powerup.y + powerup.height/2, powerup.width/2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw inner glow
+                ctx.shadowBlur = 10;
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(powerup.x + powerup.width/2, powerup.y + powerup.height/2, powerup.width/3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw lightning bolt symbol
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 18px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('⚡', powerup.x + powerup.width/2, powerup.y + powerup.height/2 + 6);
+                ctx.restore();
+            });
+        }
+
+        function activateLaserBeam() {
+            laserBeam = {
+                x: player.x,
+                y: player.y - player.height/2, // Start from aircraft position
+                width: 20,
+                height: canvas.height - (player.y - player.height/2), // Height from aircraft to top
+                damage: 999, // High damage to destroy enemies
+                enemiesDestroyed: 0,
+                maxEnemies: 20,
+                active: true,
+                duration: 3000, // 3 seconds
+                startTime: Date.now()
+            };
+        }
+
+        function updateLaserBeam() {
+            if (laserBeam && laserBeam.active) {
+                laserBeam.x = player.x; // Follow player horizontally
+                laserBeam.y = player.y - player.height/2; // Update start position
+                laserBeam.height = canvas.height - (player.y - player.height/2); // Update height
+                
+                // Check if duration expired
+                if (Date.now() - laserBeam.startTime > laserBeam.duration) {
+                    laserBeam = null;
+                    return;
+                }
+
+                // Check collision with enemies
+                enemies.forEach((enemy, index) => {
+                    if (laserBeam.enemiesDestroyed < laserBeam.maxEnemies) {
+                        const enemyCenterX = enemy.x + enemy.size / 2;
+                        const enemyCenterY = enemy.y + enemy.size / 2;
+                        
+                        // Check if enemy is in laser beam path (from aircraft to top)
+                        if (enemyCenterX >= laserBeam.x - laserBeam.width/2 && 
+                            enemyCenterX <= laserBeam.x + laserBeam.width/2 &&
+                            enemyCenterY >= 0 && enemyCenterY <= laserBeam.y) {
+                            
+                            enemies.splice(index, 1);
+                            laserBeam.enemiesDestroyed++;
+                            gameState.coins += 1000;
+                            createExplosion(enemyCenterX, enemyCenterY, '#ff00ff');
+                            playSound('explosion');
+                        }
+                    }
+                });
+
+                // Deactivate if max enemies destroyed
+                if (laserBeam.enemiesDestroyed >= laserBeam.maxEnemies) {
+                    laserBeam = null;
+                }
+            }
+        }
+
+        function drawLaserBeam() {
+            if (laserBeam && laserBeam.active) {
+                ctx.save();
+                
+                // Create gradient for laser beam (from aircraft to top)
+                const gradient = ctx.createLinearGradient(laserBeam.x, laserBeam.y, laserBeam.x, 0);
+                gradient.addColorStop(0, 'rgba(255, 0, 255, 0.8)');
+                gradient.addColorStop(0.5, 'rgba(255, 0, 255, 1)');
+                gradient.addColorStop(1, 'rgba(255, 0, 255, 0.8)');
+                
+                ctx.fillStyle = gradient;
+                ctx.shadowColor = '#ff00ff';
+                ctx.shadowBlur = 30;
+                ctx.fillRect(laserBeam.x - laserBeam.width/2, 0, laserBeam.width, laserBeam.y);
+                
+                // Draw laser core
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowBlur = 15;
+                ctx.fillRect(laserBeam.x - 2, 0, 4, laserBeam.y);
+                
+                ctx.restore();
+            }
+        }
     </script>
 </body>
 </html>  
